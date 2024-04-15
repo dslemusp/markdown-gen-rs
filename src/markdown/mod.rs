@@ -1,3 +1,4 @@
+use core::panic;
 use std::io;
 use std::io::{Error, Write};
 use Escaping::{InlineCode, Normal};
@@ -103,6 +104,9 @@ pub trait AsMarkdown<'a> {
 
     /// Converts `self` to [Quote](struct.Quote.html)
     fn quote(self) -> Quote<'a>;
+
+    /// Converts `self` to [Table](struct.List.html)
+    fn table(self) -> Table<'a>;
 }
 
 //region Paragraph
@@ -352,6 +356,10 @@ impl<'a> AsMarkdown<'a> for &'a Link<'a> {
     fn quote(self) -> Quote<'a> {
         Quote::new().append(self)
     }
+
+    fn table(self) -> Table<'a> {
+        panic!("Cannot make a table from a link.")
+    }
 }
 
 impl<'a> AsMarkdown<'a> for Link<'a> {
@@ -381,6 +389,10 @@ impl<'a> AsMarkdown<'a> for Link<'a> {
 
     fn quote(self) -> Quote<'a> {
         Quote::new().append(self)
+    }
+
+    fn table(self) -> Table<'a> {
+        panic!("Cannot make a table from a link.")
     }
 }
 //endregion
@@ -496,6 +508,10 @@ impl<'a> AsMarkdown<'a> for &'a RichText<'a> {
     fn quote(self) -> Quote<'a> {
         Quote::new().append(self)
     }
+
+    fn table(self) -> Table<'a> {
+        Table::new().row(vec![self])
+    }
 }
 
 impl<'a> AsMarkdown<'a> for RichText<'a> {
@@ -528,6 +544,10 @@ impl<'a> AsMarkdown<'a> for RichText<'a> {
 
     fn quote(self) -> Quote<'a> {
         Quote::new().append(self)
+    }
+
+    fn table(self) -> Table<'a> {
+        Table::new().row(vec![self])
     }
 }
 //endregion
@@ -650,8 +670,81 @@ impl<'a> AsMarkdown<'a> for List<'a> {
     fn quote(self) -> Quote<'a> {
         Quote::new().append(self)
     }
+
+    fn table(self) -> Table<'a> {
+        Table::new().row(vec![self])
+    }
 }
 //endregion
+
+//region Table
+/// Table
+pub struct Table<'a> {
+    rows: Vec<Vec<Box<dyn 'a + MarkdownWritable>>>,
+}
+
+impl<'a> Table<'a> {
+    /// Creates an empty table
+    pub fn new() -> Self {
+        Self { rows: Vec::new() }
+    }
+
+    /// Adds a row to the table
+    pub fn row<T: 'a + MarkdownWritable>(mut self, row: Vec<T>) -> Self {
+        self.rows.push(row.into_iter().map(|x| Box::new(x) as Box<dyn 'a + MarkdownWritable>).collect());
+        self
+    }
+}
+
+impl MarkdownWritable for &'_ Table<'_> {
+    fn write_to(
+        &self,
+        writer: &mut dyn Write,
+        _inner: bool,
+        escape: Escaping,
+        line_prefix: Option<&[u8]>,
+    ) -> Result<(), Error> {
+        for row in &self.rows {
+            write_line_prefixed(writer, b"|", line_prefix)?;
+            for cell in row {
+                cell.write_to(writer, true, escape, line_prefix)?;
+                write_line_prefixed(writer, b"|", line_prefix)?;
+            }
+            write_line_prefixed(writer, b"\n", line_prefix)?;
+        }
+        Ok(())
+    }
+
+    fn count_max_streak(&self, char: u8, _carry: usize) -> (usize, usize) {
+        let mut count = 0;
+        for row in &self.rows {
+            for cell in row {
+                let (c, _) = cell.count_max_streak(char, 0);
+                if c > count {
+                    count = c;
+                }
+            }
+        }
+        (count, 0)
+    }
+}
+
+impl MarkdownWritable for Table<'_> {
+    fn write_to(
+        &self,
+        writer: &mut dyn Write,
+        inner: bool,
+        escape: Escaping,
+        line_prefix: Option<&[u8]>,
+    ) -> Result<(), Error> {
+        (&self).write_to(writer, inner, escape, line_prefix)
+    }
+
+    fn count_max_streak(&self, char: u8, carry: usize) -> (usize, usize) {
+        (&self).count_max_streak(char, carry)
+    }
+    
+}
 
 //region Quote
 /// A quote block
@@ -805,6 +898,10 @@ impl<'a> AsMarkdown<'a> for &'a String {
     fn quote(self) -> Quote<'a> {
         self.as_str().quote()
     }
+
+    fn table(self) -> Table<'a> {
+        self.as_str().table()
+    }
 }
 
 impl<'a> AsMarkdown<'a> for &'a str {
@@ -834,6 +931,10 @@ impl<'a> AsMarkdown<'a> for &'a str {
 
     fn quote(self) -> Quote<'a> {
         Quote::new().append(self)
+    }
+
+    fn table(self) -> Table<'a> {
+        Table::new().row(vec![self])
     }
 }
 //endregion
